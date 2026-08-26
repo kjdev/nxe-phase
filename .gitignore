@@ -1,0 +1,6 @@
+/tests/unit/test_runner
+/tests/unit/test_runner_asan
+/tests/unit/test_runner_cov
+/tests/unit/*.gcno
+/tests/unit/*.gcda
+/tests/unit/*.gcov
