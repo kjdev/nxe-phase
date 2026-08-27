@@ -47,3 +47,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - CI workflows for both test suites (`tests/unit/` via `make test` /
   `test-asan` / `test-cov`, `tests/prove/` via `prove` against
   separately-configured dummy module builds in both load orders)
+
+### Fixed
+
+- The registry no longer risks reusing a stale generation after a
+  failed reload. It used to key its reset detection purely on cycle
+  pointer identity, with nothing to invalidate that pointer once the
+  cycle's pool was destroyed; a later cycle allocated at the same
+  (freed) address would then be mistaken for the same generation,
+  skipping the reset and writing through a dangling pointer into
+  freed memory. A pool cleanup registered when the registry binds to
+  a cycle now invalidates it as soon as that cycle's pool is torn
+  down, so the next `nxe_phase_add_handler()` call always rebuilds
+  the registry from scratch instead.
