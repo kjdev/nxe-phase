@@ -219,12 +219,239 @@ TEST(all_equal_priority_preserves_seq_derived_order){
 }
 
 
+/* --- test harness for nxe_phase_add_handler() phase whitelist tests --- */
+
+#define NXE_PHASE_STR_(x)  #x
+#define NXE_PHASE_STR(x)   NXE_PHASE_STR_(x)
+
+/*
+ * The registry (nxe_phase_registry, file-scope in nxe_phase.c) keys its
+ * reset-detection on "registry.cycle != cf->cycle" pointer identity. A
+ * stack-allocated ngx_cycle_t would have its address reused across
+ * TEST() calls, so the registry would see the same pointer, skip the
+ * reset, and leak phase-group slots from a prior test into the next
+ * one. A distinct static array element per test avoids that.
+ */
+static ngx_cycle_t test_cycles[16];
+static ngx_uint_t test_cycles_used = 0;
+
+static ngx_module_t *modules_with_registry[] = {
+    &NXE_PHASE_MODULE_SYM,
+    NULL
+};
+
+static ngx_module_t *modules_without_registry[] = {
+    NULL
+};
+
+static ngx_int_t
+dummy_handler(ngx_http_request_t *r)
+{
+    (void) r;
+    return NGX_OK;
+}
+
+
+/*
+ * Builds an ngx_conf_t wired to a fresh cycle/pool/cmcf, with only the 8
+ * phases real nginx initializes (ngx_http_init_phases(), nginx
+ * src/http/ngx_http.c) given an initialized handlers array --
+ * FIND_CONFIG / POST_REWRITE / POST_ACCESS are left zeroed, matching
+ * production, so a test that mistakenly pushes into one of those fails
+ * the same way production would instead of silently succeeding.
+ */
+static ngx_conf_t
+make_test_conf(ngx_module_t **modules)
+{
+    ngx_conf_t cf;
+    ngx_cycle_t *cycle;
+    ngx_pool_t *pool;
+    ngx_http_core_main_conf_t *cmcf;
+    ngx_uint_t phase;
+
+    ASSERT(test_cycles_used < sizeof(test_cycles) / sizeof(test_cycles[0]));
+
+    cycle = &test_cycles[test_cycles_used++];
+    cycle->modules = modules;
+
+    pool = ngx_create_pool(0, NULL);
+    ASSERT(pool != NULL);
+
+    cmcf = ngx_pcalloc(pool, sizeof(ngx_http_core_main_conf_t));
+    ASSERT(cmcf != NULL);
+
+    for (phase = 0; phase <= NGX_HTTP_LOG_PHASE; phase++) {
+        if (phase == NGX_HTTP_FIND_CONFIG_PHASE
+            || phase == NGX_HTTP_POST_REWRITE_PHASE
+            || phase == NGX_HTTP_POST_ACCESS_PHASE)
+        {
+            continue;
+        }
+
+        ASSERT(ngx_array_init(&cmcf->phases[phase].handlers, pool, 4,
+                              sizeof(ngx_http_handler_pt))
+               == NGX_OK);
+    }
+
+    ngx_memzero(&cf, sizeof(cf));
+    cf.cycle = cycle;
+    cf.pool = pool;
+    cf.temp_pool = pool;
+    cf.ctx = cmcf;
+
+    return cf;
+}
+
+
+TEST(add_handler_allows_the_four_registrable_phases){
+    ngx_conf_t cf;
+    ngx_http_core_main_conf_t *cmcf;
+    ngx_uint_t allowed[] = {
+        NGX_HTTP_POST_READ_PHASE,
+        NGX_HTTP_PREACCESS_PHASE,
+        NGX_HTTP_ACCESS_PHASE,
+        NGX_HTTP_PRECONTENT_PHASE
+    };
+    ngx_uint_t i, before;
+
+    cf = make_test_conf(modules_with_registry);
+    cmcf = cf.ctx;
+
+    for (i = 0; i < sizeof(allowed) / sizeof(allowed[0]); i++) {
+        before = cmcf->phases[allowed[i]].handlers.nelts;
+
+        ASSERT_EQ_INT(nxe_phase_add_handler(&cf, allowed[i], 100,
+                                            dummy_handler, "allowed"),
+                      NGX_OK);
+        ASSERT_EQ_INT(cmcf->phases[allowed[i]].handlers.nelts, before + 1);
+    }
+
+    ngx_destroy_pool(cf.pool);
+}
+
+
+TEST(add_handler_rejects_unsupported_phases){
+    ngx_conf_t cf;
+    ngx_uint_t rejected[] = {
+        NGX_HTTP_SERVER_REWRITE_PHASE,
+        NGX_HTTP_FIND_CONFIG_PHASE,
+        NGX_HTTP_REWRITE_PHASE,
+        NGX_HTTP_POST_REWRITE_PHASE,
+        NGX_HTTP_POST_ACCESS_PHASE,
+        NGX_HTTP_CONTENT_PHASE,
+        NGX_HTTP_LOG_PHASE
+    };
+    ngx_uint_t i;
+
+    cf = make_test_conf(modules_with_registry);
+
+    for (i = 0; i < sizeof(rejected) / sizeof(rejected[0]); i++) {
+        ASSERT_EQ_INT(nxe_phase_add_handler(&cf, rejected[i], 100,
+                                            dummy_handler, "rejected"),
+                      NGX_ERROR);
+    }
+
+    ngx_destroy_pool(cf.pool);
+}
+
+
+/*
+ * Verified via return value and nelts, not by observing a crash: the
+ * stub's ngx_array_push() is malloc-based and may not reproduce real
+ * nginx's NULL-pool crash, so the test must not depend on crashing.
+ */
+TEST(add_handler_rejects_before_touching_uninitialized_phase_arrays){
+    ngx_conf_t cf;
+    ngx_http_core_main_conf_t *cmcf;
+    ngx_uint_t uninitialized[] = {
+        NGX_HTTP_FIND_CONFIG_PHASE,
+        NGX_HTTP_POST_REWRITE_PHASE,
+        NGX_HTTP_POST_ACCESS_PHASE
+    };
+    ngx_uint_t i;
+
+    cf = make_test_conf(modules_with_registry);
+    cmcf = cf.ctx;
+
+    for (i = 0; i < sizeof(uninitialized) / sizeof(uninitialized[0]); i++) {
+        ASSERT_EQ_INT(nxe_phase_add_handler(&cf, uninitialized[i], 100,
+                                            dummy_handler, "uninitialized"),
+                      NGX_ERROR);
+        ASSERT_EQ_INT(cmcf->phases[uninitialized[i]].handlers.nelts, 0);
+        ASSERT(cmcf->phases[uninitialized[i]].handlers.elts == NULL);
+    }
+
+    ngx_destroy_pool(cf.pool);
+}
+
+
+TEST(add_handler_reject_log_includes_phase_number){
+    ngx_conf_t cf;
+
+    cf = make_test_conf(modules_with_registry);
+
+    ngx_stub_last_log_reset();
+    ASSERT_EQ_INT(nxe_phase_add_handler(&cf, NGX_HTTP_LOG_PHASE, 100,
+                                        dummy_handler, "logtest"),
+                  NGX_ERROR);
+    ASSERT(strstr(ngx_stub_last_log(), "10") != NULL);
+
+    ngx_destroy_pool(cf.pool);
+}
+
+
+TEST(add_handler_rejects_via_fallback_path_without_registry){
+    ngx_conf_t cf;
+    ngx_http_core_main_conf_t *cmcf;
+
+    cf = make_test_conf(modules_without_registry);
+    cmcf = cf.ctx;
+
+    ASSERT_EQ_INT(nxe_phase_add_handler(&cf, NGX_HTTP_CONTENT_PHASE, 100,
+                                        dummy_handler, "fallback"),
+                  NGX_ERROR);
+    ASSERT_EQ_INT(cmcf->phases[NGX_HTTP_CONTENT_PHASE].handlers.nelts, 0);
+
+    ASSERT_EQ_INT(nxe_phase_add_handler(&cf, NGX_HTTP_ACCESS_PHASE, 100,
+                                        dummy_handler, "fallback"),
+                  NGX_OK);
+    ASSERT_EQ_INT(cmcf->phases[NGX_HTTP_ACCESS_PHASE].handlers.nelts, 1);
+
+    ngx_destroy_pool(cf.pool);
+}
+
+
+TEST(add_handler_rejects_with_null_name_without_crashing){
+    ngx_conf_t cf;
+
+    cf = make_test_conf(modules_with_registry);
+
+    ASSERT_EQ_INT(nxe_phase_add_handler(&cf, NGX_HTTP_LOG_PHASE, 100,
+                                        dummy_handler, NULL),
+                  NGX_ERROR);
+
+    ngx_destroy_pool(cf.pool);
+}
+
+
 int
 main(void)
 {
     if (getenv("NXE_PHASE_TEST_VERBOSE") != NULL) {
         verbose = 1;
     }
+
+    ngx_stub_log_set_verbose(verbose);
+
+    /*
+     * Real nginx assigns ngx_module_t.name at startup (ngx_preinit_
+     * modules(), nginx src/core/ngx_module.c), not via the static
+     * initializer NGX_MODULE_V1 (which leaves it NULL). Simulate that
+     * one-time assignment here so nxe_phase_add_handler()'s registry
+     * discovery (prefix match on m->name) can find this translation
+     * unit's own registry module instance.
+     */
+    NXE_PHASE_MODULE_SYM.name = (char *) NXE_PHASE_STR(NXE_PHASE_MODULE_SYM);
 
     RUN(ascending_priority_sorts_descending_by_prio);
     RUN(same_priority_sorts_descending_by_seq);
@@ -234,6 +461,13 @@ main(void)
     RUN(empty_array);
     RUN(single_element);
     RUN(all_equal_priority_preserves_seq_derived_order);
+
+    RUN(add_handler_allows_the_four_registrable_phases);
+    RUN(add_handler_rejects_unsupported_phases);
+    RUN(add_handler_rejects_before_touching_uninitialized_phase_arrays);
+    RUN(add_handler_reject_log_includes_phase_number);
+    RUN(add_handler_rejects_via_fallback_path_without_registry);
+    RUN(add_handler_rejects_with_null_name_without_crashing);
 
     printf("%d/%d tests passed\n", tests_run - tests_failed, tests_run);
 

@@ -91,7 +91,31 @@ typedef struct {
 
 /* --- phase handler storage (subset of nginx http/ngx_http_core_module.h) --- */
 
-#define NGX_HTTP_LOG_PHASE  10
+/*
+ * Mirrors nginx's ngx_http_phases enum verbatim (rather than just
+ * #define-ing NGX_HTTP_LOG_PHASE) so a future reordering upstream shows
+ * up as a visible diff here instead of silently drifting.
+ */
+typedef enum {
+    NGX_HTTP_POST_READ_PHASE = 0,
+
+    NGX_HTTP_SERVER_REWRITE_PHASE,
+
+    NGX_HTTP_FIND_CONFIG_PHASE,
+    NGX_HTTP_REWRITE_PHASE,
+    NGX_HTTP_POST_REWRITE_PHASE,
+
+    NGX_HTTP_PREACCESS_PHASE,
+
+    NGX_HTTP_ACCESS_PHASE,
+    NGX_HTTP_POST_ACCESS_PHASE,
+
+    NGX_HTTP_PRECONTENT_PHASE,
+
+    NGX_HTTP_CONTENT_PHASE,
+
+    NGX_HTTP_LOG_PHASE
+} ngx_http_phases;
 
 typedef struct {
     ngx_array_t  handlers;

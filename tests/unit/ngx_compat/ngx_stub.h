@@ -110,6 +110,14 @@ const char *ngx_stub_last_log(void);
  * later ngx_stub_last_log() reflects that operation and not a stale message). */
 void ngx_stub_last_log_reset(void);
 
+/*
+ * Controls whether ngx_stub_log_emit() also writes to stderr. Capture into
+ * the ngx_stub_last_log() buffer always happens regardless of this flag.
+ * Off by default, so expected-rejection test cases (e.g. an EMERG for an
+ * unsupported phase) don't make a passing run look like a failure.
+ */
+void ngx_stub_log_set_verbose(int verbose);
+
 
 /* --- ngx_pool_t (malloc-based simple implementation) --- */
 

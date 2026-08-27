@@ -19,6 +19,7 @@
 /* --- ngx_log_error capture --- */
 
 static __thread char ngx_stub_log_buf[512];
+static int ngx_stub_log_verbose = 0;
 
 void
 ngx_stub_log_emit(const char *fmt, ...)
@@ -29,7 +30,16 @@ ngx_stub_log_emit(const char *fmt, ...)
     vsnprintf(ngx_stub_log_buf, sizeof(ngx_stub_log_buf), fmt, args);
     va_end(args);
 
-    fprintf(stderr, "[nxe_phase_stub] %s\n", ngx_stub_log_buf);
+    if (ngx_stub_log_verbose) {
+        fprintf(stderr, "[nxe_phase_stub] %s\n", ngx_stub_log_buf);
+    }
+}
+
+
+void
+ngx_stub_log_set_verbose(int verbose)
+{
+    ngx_stub_log_verbose = verbose;
 }
 
 const char *

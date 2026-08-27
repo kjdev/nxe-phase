@@ -16,6 +16,28 @@
 
 #include "nxe_phase.h"
 
+/*
+ * Pins the four registrable phases' numeric values against the real
+ * nginx headers this file compiles against (unlike tests/unit/ngx_compat/
+ * ngx_http.h, which hand-mirrors ngx_http_phases for the stub-based C
+ * unit tests). If upstream nginx ever renumbers ngx_http_phases, this
+ * fails to compile here first instead of the unit test stub silently
+ * drifting out of sync. _Static_assert (not #if) because ngx_http_phases
+ * is a C enum, not visible to the preprocessor.
+ */
+_Static_assert(NGX_HTTP_POST_READ_PHASE == 0,
+               "nxe_phase: NGX_HTTP_POST_READ_PHASE drifted from "
+               "tests/unit/ngx_compat/ngx_http.h -- update both");
+_Static_assert(NGX_HTTP_PREACCESS_PHASE == 5,
+               "nxe_phase: NGX_HTTP_PREACCESS_PHASE drifted from "
+               "tests/unit/ngx_compat/ngx_http.h -- update both");
+_Static_assert(NGX_HTTP_ACCESS_PHASE == 6,
+               "nxe_phase: NGX_HTTP_ACCESS_PHASE drifted from "
+               "tests/unit/ngx_compat/ngx_http.h -- update both");
+_Static_assert(NGX_HTTP_PRECONTENT_PHASE == 8,
+               "nxe_phase: NGX_HTTP_PRECONTENT_PHASE drifted from "
+               "tests/unit/ngx_compat/ngx_http.h -- update both");
+
 /* Arbitrary, test-only priorities -- lower runs first. */
 #define NXE_PHASE_TEST_B_PRIO  200
 
