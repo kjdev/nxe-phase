@@ -9,6 +9,13 @@
  * vendored and compiled into several independent .so files / addon
  * trees, one per consuming module, so nothing here may collide with
  * another copy of the same file linked elsewhere in the same process.
+ *
+ * This file is never added to ngx_module_srcs directly.  config.ngx
+ * generates a per-consumer wrapper .c under $NGX_OBJS that #defines
+ * NXE_PHASE_TAG and #includes this file by absolute path, so each
+ * consumer gets its own translation unit -- and therefore its own
+ * object file path and its own tag -- without NXE_PHASE_TAG leaking
+ * into any other consumer's build through a shared CFLAGS.
  */
 
 #include "nxe_phase.h"

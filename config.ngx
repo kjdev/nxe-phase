@@ -12,7 +12,14 @@
 #                   ngx_module_t symbol name
 #                   (nxe_phase_order_module_$nxe_phase_tag) so that
 #                   several copies can coexist in one nginx binary
-#                   without a link-time name collision.
+#                   without a link-time name collision.  The tag is
+#                   injected through a per-consumer wrapper .c
+#                   generated under $NGX_OBJS (not through CFLAGS,
+#                   which auto/make writes out once as a single global
+#                   Makefile variable shared by every addon source in
+#                   the build, so a second consumer's tag would
+#                   silently overwrite the first's for every
+#                   translation unit).
 #
 # After sourcing, $nxe_phase_module_{name,deps,srcs,incs,libs} are
 # populated and should be appended to the parent module's ngx_module_*
@@ -36,10 +43,25 @@ if [ -z "$nxe_phase_tag" ]; then
     exit 1
 fi
 
-CFLAGS="$CFLAGS -DNXE_PHASE_TAG=$nxe_phase_tag"
+if [ -z "$NGX_OBJS" ]; then
+    echo "$0: error: NGX_OBJS is not set" >&2
+    exit 1
+fi
+
+# The include below is resolved relative to the generated file under
+# $NGX_OBJS, so the vendored path has to be absolute.
+nxe_phase_abs_dir=$(cd "$nxe_phase_dir" && pwd)
+nxe_phase_gen_dir="$NGX_OBJS/nxe_phase_$nxe_phase_tag"
+
+mkdir -p "$nxe_phase_gen_dir"
+
+cat > "$nxe_phase_gen_dir/nxe_phase.c" <<NXE_PHASE_END
+#define NXE_PHASE_TAG $nxe_phase_tag
+#include "$nxe_phase_abs_dir/src/nxe_phase.c"
+NXE_PHASE_END
 
 nxe_phase_module_name="nxe_phase_order_module_$nxe_phase_tag"
-nxe_phase_module_deps="$nxe_phase_dir/src/nxe_phase.h"
-nxe_phase_module_srcs="$nxe_phase_dir/src/nxe_phase.c"
-nxe_phase_module_incs="$nxe_phase_dir/src"
+nxe_phase_module_deps="$nxe_phase_abs_dir/src/nxe_phase.h $nxe_phase_abs_dir/src/nxe_phase.c"
+nxe_phase_module_srcs="$nxe_phase_gen_dir/nxe_phase.c"
+nxe_phase_module_incs="$nxe_phase_abs_dir/src"
 nxe_phase_module_libs=""

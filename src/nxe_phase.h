@@ -145,8 +145,10 @@ typedef struct {
 
 /*
  * Token-pasting helpers to build the per-tag ngx_module_t symbol name
- * from the NXE_PHASE_TAG macro supplied via config.ngx's
- * -DNXE_PHASE_TAG=<tag>.
+ * from the NXE_PHASE_TAG macro.  config.ngx defines it inside a
+ * generated per-consumer wrapper .c (under $NGX_OBJS) that #includes
+ * this file's companion nxe_phase.c, rather than passing
+ * -DNXE_PHASE_TAG=<tag> through CFLAGS -- see config.ngx for why.
  */
 #define NXE_PHASE_CONCAT_(a, b)  a ## b
 #define NXE_PHASE_CONCAT(a, b)   NXE_PHASE_CONCAT_(a, b)
