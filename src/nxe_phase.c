@@ -119,7 +119,15 @@ nxe_phase_registry_add(ngx_conf_t *cf, ngx_uint_t phase, ngx_int_t prio,
     ngx_http_handler_pt *hp, *elts;
     ngx_http_core_main_conf_t *cmcf;
 
-    if (phase > NGX_HTTP_LOG_PHASE) {
+    /*
+     * Re-validated here even though nxe_phase_add_handler() (nxe_phase.h)
+     * already checks phase: this function can be reached through another
+     * vendored copy's header via the authority->api.add() function
+     * pointer. If that older copy predates this check, the header-side
+     * validation is bypassed entirely -- this is the last line of defense
+     * against a version-mixing scenario, not redundant with the header check.
+     */
+    if (nxe_phase_check_phase(cf, phase, name) != NGX_OK) {
         return NGX_ERROR;
     }
 

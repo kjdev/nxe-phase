@@ -156,6 +156,53 @@ typedef struct {
 
 
 /*
+ * nxe_phase_check_phase() -- validate that "phase" is one of the four
+ * phases this registry supports, logging a diagnostic and rejecting
+ * everything else.
+ *
+ * Two problems make an unrestricted "phase" argument unsafe:
+ *
+ *   1. ngx_http_init_phases() (nginx src/http/ngx_http.c) only calls
+ *      ngx_array_init() for 8 of the 11 phases. FIND_CONFIG /
+ *      POST_REWRITE / POST_ACCESS are left zeroed (cmcf comes from
+ *      ngx_pcalloc()), so ngx_array_push()-ing into one of them hits
+ *      the nelts == nalloc == 0 growth path with elts == NULL and
+ *      crashes during config parsing.
+ *   2. ngx_http_log_request() (nginx src/http/ngx_http_request.c)
+ *      walks LOG-phase handlers index 0 -> n, bypassing the phase
+ *      engine entirely. nxe_phase_sort_entries()'s ordering contract
+ *      ("highest priority at the highest array index") assumes the
+ *      phase engine's tail-to-head walk, so applying it to
+ *      LOG produces the reverse execution order.
+ *
+ * including why SERVER_REWRITE / REWRITE / CONTENT are excluded even
+ * though neither problem applies to them.
+ */
+static ngx_inline ngx_int_t
+nxe_phase_check_phase(ngx_conf_t *cf, ngx_uint_t phase, const char *name)
+{
+    switch (phase) {
+    case NGX_HTTP_POST_READ_PHASE:
+    case NGX_HTTP_PREACCESS_PHASE:
+    case NGX_HTTP_ACCESS_PHASE:
+    case NGX_HTTP_PRECONTENT_PHASE:
+        return NGX_OK;
+
+    default:
+        break;
+    }
+
+    ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
+                       "nxe_phase: handler \"%s\" tried to register on "
+                       "unsupported phase %ui -- only POST_READ, "
+                       "PREACCESS, ACCESS and PRECONTENT are supported",
+                       name ? name : "(unnamed)", phase);
+
+    return NGX_ERROR;
+}
+
+
+/*
  * nxe_phase_add_handler() -- register a phase handler with an explicit
  * priority instead of pushing it directly onto
  * cmcf->phases[phase].handlers.
@@ -185,6 +232,10 @@ nxe_phase_add_handler(ngx_conf_t *cf, ngx_uint_t phase, ngx_int_t prio,
     nxe_phase_module_ctx_t *ctx, *authority;
     ngx_http_core_main_conf_t *cmcf;
     ngx_http_handler_pt *hp;
+
+    if (nxe_phase_check_phase(cf, phase, name) != NGX_OK) {
+        return NGX_ERROR;
+    }
 
     authority = NULL;
     version = 0;
@@ -217,7 +268,7 @@ nxe_phase_add_handler(ngx_conf_t *cf, ngx_uint_t phase, ngx_int_t prio,
             ngx_conf_log_error(NGX_LOG_DEBUG, cf, 0,
                                "nxe_phase: using registry from module \"%s\" "
                                "(version %ui) for \"%s\"",
-                               m->name, version, name);
+                               m->name, version, name ? name : "(unnamed)");
             continue;
         }
 
