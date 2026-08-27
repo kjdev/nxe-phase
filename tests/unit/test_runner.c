@@ -434,6 +434,113 @@ TEST(add_handler_rejects_with_null_name_without_crashing){
 }
 
 
+/*
+ * Regression test for the failed-reload / reused-cycle-address bug:
+ * nxe_phase_registry_add() used to key its reset-detection purely on
+ * "registry.cycle != cf->cycle" pointer identity, with nothing to
+ * invalidate that pointer once the pool it came from was destroyed.
+ * A later cycle allocated at the same (freed) address would then be
+ * mistaken for the same generation, skipping the reset and pushing
+ * into a slots array backed by freed memory.
+ *
+ * This does not use make_test_conf()/test_cycles -- it needs a single
+ * ngx_cycle_t address reused across two independent pools/cmcf, which
+ * is exactly the scenario the fix (a pool cleanup registered in
+ * nxe_phase_registry_reset()) has to handle.
+ */
+TEST(pool_cleanup_invalidates_registry_for_reused_cycle_address){
+    ngx_conf_t cf;
+    ngx_cycle_t cycle;
+    ngx_pool_t *pool;
+    ngx_http_core_main_conf_t *cmcf;
+    ngx_uint_t phase;
+
+    ngx_memzero(&cycle, sizeof(cycle));
+    cycle.modules = modules_with_registry;
+
+    /* Generation 1: bind the registry to &cycle. */
+    pool = ngx_create_pool(0, NULL);
+    ASSERT(pool != NULL);
+
+    cmcf = ngx_pcalloc(pool, sizeof(ngx_http_core_main_conf_t));
+    ASSERT(cmcf != NULL);
+
+    for (phase = 0; phase <= NGX_HTTP_LOG_PHASE; phase++) {
+        if (phase == NGX_HTTP_FIND_CONFIG_PHASE
+            || phase == NGX_HTTP_POST_REWRITE_PHASE
+            || phase == NGX_HTTP_POST_ACCESS_PHASE)
+        {
+            continue;
+        }
+
+        ASSERT(ngx_array_init(&cmcf->phases[phase].handlers, pool, 4,
+                              sizeof(ngx_http_handler_pt))
+               == NGX_OK);
+    }
+
+    ngx_memzero(&cf, sizeof(cf));
+    cf.cycle = &cycle;
+    cf.pool = pool;
+    cf.temp_pool = pool;
+    cf.ctx = cmcf;
+
+    ASSERT_EQ_INT(nxe_phase_add_handler(&cf, NGX_HTTP_ACCESS_PHASE, 100,
+                                        dummy_handler, "gen1"),
+                  NGX_OK);
+    ASSERT(nxe_phase_registry.cycle == &cycle);
+
+    /*
+     * Simulates ngx_destroy_cycle_pools() unwinding a cycle that
+     * failed to finish starting. The pool cleanup added by
+     * nxe_phase_registry_reset() must fire here and null out
+     * registry.cycle, since it still points at this generation.
+     */
+    ngx_destroy_pool(pool);
+
+    ASSERT(nxe_phase_registry.cycle == NULL);
+
+    /*
+     * Generation 2 reuses the exact same cycle address (as a fixed-
+     * size cycle pool allocator commonly would after generation 1's
+     * pool was freed). Because the cleanup already invalidated the
+     * registry, this add() must run a full reset instead of reusing
+     * generation 1's now-dangling slots array.
+     */
+    pool = ngx_create_pool(0, NULL);
+    ASSERT(pool != NULL);
+
+    cmcf = ngx_pcalloc(pool, sizeof(ngx_http_core_main_conf_t));
+    ASSERT(cmcf != NULL);
+
+    for (phase = 0; phase <= NGX_HTTP_LOG_PHASE; phase++) {
+        if (phase == NGX_HTTP_FIND_CONFIG_PHASE
+            || phase == NGX_HTTP_POST_REWRITE_PHASE
+            || phase == NGX_HTTP_POST_ACCESS_PHASE)
+        {
+            continue;
+        }
+
+        ASSERT(ngx_array_init(&cmcf->phases[phase].handlers, pool, 4,
+                              sizeof(ngx_http_handler_pt))
+               == NGX_OK);
+    }
+
+    cf.pool = pool;
+    cf.temp_pool = pool;
+    cf.ctx = cmcf;
+
+    ASSERT_EQ_INT(nxe_phase_add_handler(&cf, NGX_HTTP_ACCESS_PHASE, 100,
+                                        dummy_handler, "gen2"),
+                  NGX_OK);
+    ASSERT_EQ_INT(cmcf->phases[NGX_HTTP_ACCESS_PHASE].handlers.nelts, 1);
+    ASSERT(nxe_phase_registry.cycle == &cycle);
+    ASSERT_EQ_INT(
+        nxe_phase_registry.groups[NGX_HTTP_ACCESS_PHASE].slots.nelts, 1);
+
+    ngx_destroy_pool(pool);
+}
+
+
 int
 main(void)
 {
@@ -468,6 +575,7 @@ main(void)
     RUN(add_handler_reject_log_includes_phase_number);
     RUN(add_handler_rejects_via_fallback_path_without_registry);
     RUN(add_handler_rejects_with_null_name_without_crashing);
+    RUN(pool_cleanup_invalidates_registry_for_reused_cycle_address);
 
     printf("%d/%d tests passed\n", tests_run - tests_failed, tests_run);
 

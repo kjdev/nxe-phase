@@ -70,6 +70,7 @@ ngx_create_pool(size_t size, ngx_log_t *log)
     }
 
     pool->large = NULL;
+    pool->cleanup = NULL;
     pool->log = log;
 
     return pool;
@@ -79,7 +80,19 @@ ngx_create_pool(size_t size, ngx_log_t *log)
 void
 ngx_destroy_pool(ngx_pool_t *pool)
 {
+    ngx_pool_cleanup_t *c;
     ngx_pool_large_t *l, *next;
+
+    /*
+     * Mirrors real nginx: cleanups run before the pool's own memory is
+     * released, so a handler may still safely read "data" (a plain
+     * pointer set by the caller, not necessarily pool-allocated here).
+     */
+    for (c = pool->cleanup; c; c = c->next) {
+        if (c->handler) {
+            c->handler(c->data);
+        }
+    }
 
     for (l = pool->large; l; l = next) {
         next = l->next;
@@ -88,6 +101,34 @@ ngx_destroy_pool(ngx_pool_t *pool)
     }
 
     free(pool);
+}
+
+
+ngx_pool_cleanup_t *
+ngx_pool_cleanup_add(ngx_pool_t *pool, size_t size)
+{
+    ngx_pool_cleanup_t *c;
+
+    c = ngx_palloc(pool, sizeof(ngx_pool_cleanup_t));
+    if (c == NULL) {
+        return NULL;
+    }
+
+    if (size) {
+        c->data = ngx_palloc(pool, size);
+        if (c->data == NULL) {
+            return NULL;
+        }
+    } else {
+        c->data = NULL;
+    }
+
+    c->handler = NULL;
+    c->next = pool->cleanup;
+
+    pool->cleanup = c;
+
+    return c;
 }
 
 
