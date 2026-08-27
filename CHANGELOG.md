@@ -60,3 +60,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   a cycle now invalidates it as soon as that cycle's pool is torn
   down, so the next `nxe_phase_add_handler()` call always rebuilds
   the registry from scratch instead.
+- The standalone fallback path (no registry module found in the
+  cycle) no longer fails silently. It still registers the handler via
+  a plain `ngx_array_push()`, but now logs a `NGX_LOG_WARN` naming the
+  handler, so a build misconfiguration that drops every consumer back
+  to `load_module` order is observable instead of a silent fail-open.
