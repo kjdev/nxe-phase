@@ -48,6 +48,10 @@ manipulates the HTTP phase handler arrays.
   nxe-phase are loaded in the same process, a version mismatch aborts
   startup (`NGX_LOG_EMERG`) instead of risking silently broken
   ordering.
+- **Observable fallback** — if no registry module is found in the
+  cycle, `nxe_phase_add_handler()` still registers the handler via a
+  plain `ngx_array_push()`, but logs a `NGX_LOG_WARN` naming the
+  handler instead of silently losing the ordering guarantee.
 
 ## API overview
 
