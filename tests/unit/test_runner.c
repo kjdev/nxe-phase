@@ -421,6 +421,23 @@ TEST(add_handler_rejects_via_fallback_path_without_registry){
 }
 
 
+TEST(add_handler_fallback_path_logs_without_registry){
+    ngx_conf_t cf;
+
+    cf = make_test_conf(modules_without_registry);
+
+    ngx_stub_last_log_reset();
+    ASSERT_EQ_INT(nxe_phase_add_handler(&cf, NGX_HTTP_ACCESS_PHASE, 100,
+                                        dummy_handler, "unordered"),
+                  NGX_OK);
+    ASSERT(strstr(ngx_stub_last_log(), "no registry module found")
+           != NULL);
+    ASSERT(strstr(ngx_stub_last_log(), "unordered") != NULL);
+
+    ngx_destroy_pool(cf.pool);
+}
+
+
 TEST(add_handler_rejects_with_null_name_without_crashing){
     ngx_conf_t cf;
 
@@ -574,6 +591,7 @@ main(void)
     RUN(add_handler_rejects_before_touching_uninitialized_phase_arrays);
     RUN(add_handler_reject_log_includes_phase_number);
     RUN(add_handler_rejects_via_fallback_path_without_registry);
+    RUN(add_handler_fallback_path_logs_without_registry);
     RUN(add_handler_rejects_with_null_name_without_crashing);
     RUN(pool_cleanup_invalidates_registry_for_reused_cycle_address);
 
