@@ -43,6 +43,23 @@ if [ -z "$nxe_phase_tag" ]; then
     exit 1
 fi
 
+# $nxe_phase_tag is spliced into a C macro (NXE_PHASE_TAG) and a
+# generated directory name, so it must be a valid C identifier.
+case "$nxe_phase_tag" in
+    [A-Za-z_]*) ;;
+    *)
+        echo "$0: error: nxe_phase_tag must start with a letter or underscore: $nxe_phase_tag" >&2
+        exit 1
+        ;;
+esac
+
+case "$nxe_phase_tag" in
+    *[!A-Za-z0-9_]*)
+        echo "$0: error: nxe_phase_tag must contain only letters, digits, and underscores: $nxe_phase_tag" >&2
+        exit 1
+        ;;
+esac
+
 if [ -z "$NGX_OBJS" ]; then
     echo "$0: error: NGX_OBJS is not set" >&2
     exit 1
@@ -50,15 +67,25 @@ fi
 
 # The include below is resolved relative to the generated file under
 # $NGX_OBJS, so the vendored path has to be absolute.
-nxe_phase_abs_dir=$(cd "$nxe_phase_dir" && pwd)
+if ! nxe_phase_abs_dir=$(cd "$nxe_phase_dir" && pwd); then
+    echo "$0: error: nxe_phase_dir is not a valid directory: $nxe_phase_dir" >&2
+    exit 1
+fi
 nxe_phase_gen_dir="$NGX_OBJS/nxe_phase_$nxe_phase_tag"
 
-mkdir -p "$nxe_phase_gen_dir"
+if ! mkdir -p "$nxe_phase_gen_dir"; then
+    echo "$0: error: failed to create $nxe_phase_gen_dir" >&2
+    exit 1
+fi
 
-cat > "$nxe_phase_gen_dir/nxe_phase.c" <<NXE_PHASE_END
+if ! cat > "$nxe_phase_gen_dir/nxe_phase.c" <<NXE_PHASE_END
 #define NXE_PHASE_TAG $nxe_phase_tag
 #include "$nxe_phase_abs_dir/src/nxe_phase.c"
 NXE_PHASE_END
+then
+    echo "$0: error: failed to generate $nxe_phase_gen_dir/nxe_phase.c" >&2
+    exit 1
+fi
 
 nxe_phase_module_name="nxe_phase_order_module_$nxe_phase_tag"
 nxe_phase_module_deps="$nxe_phase_abs_dir/src/nxe_phase.h $nxe_phase_abs_dir/src/nxe_phase.c"
