@@ -1,0 +1,138 @@
+/*
+ * Copyright (c) Tatsuya Kamijo
+ * Copyright (c) Bengo4.com, Inc.
+ *
+ * nxe_phase_test_a_module.c - dummy PREACCESS handler for tests/prove
+ *
+ * Registers through nxe_phase_add_handler() with a priority lower than
+ * dummy_b's, so it must always run first regardless of the order the
+ * two .so files are given to TEST_NGINX_LOAD_MODULES -- that is the
+ * property tests/prove/phase_order.t exercises.
+ */
+
+#include <ngx_config.h>
+#include <ngx_core.h>
+#include <ngx_http.h>
+
+#include "nxe_phase.h"
+
+/* Arbitrary, test-only priorities -- lower runs first. */
+#define NXE_PHASE_TEST_A_PRIO  100
+
+static ngx_int_t nxe_phase_test_a_postconf(ngx_conf_t *cf);
+static ngx_int_t nxe_phase_test_a_handler(ngx_http_request_t *r);
+
+static ngx_http_module_t nxe_phase_test_a_module_ctx = {
+    NULL,                       /* preconfiguration */
+    nxe_phase_test_a_postconf,  /* postconfiguration */
+    NULL,                       /* create main configuration */
+    NULL,                       /* init main configuration */
+    NULL,                       /* create server configuration */
+    NULL,                       /* merge server configuration */
+    NULL,                       /* create location configuration */
+    NULL                        /* merge location configuration */
+};
+
+ngx_module_t nxe_phase_test_a_module = {
+    NGX_MODULE_V1,
+    &nxe_phase_test_a_module_ctx, /* module context */
+    NULL,                         /* module directives */
+    NGX_HTTP_MODULE,              /* module type */
+    NULL,                         /* init master */
+    NULL,                         /* init module */
+    NULL,                         /* init process */
+    NULL,                         /* init thread */
+    NULL,                         /* exit thread */
+    NULL,                         /* exit process */
+    NULL,                         /* exit master */
+    NGX_MODULE_V1_PADDING
+};
+
+/*
+ * Appends ",a" (or sets the header to "a" if absent) to the shared
+ * X-Nxe-Phase-Order response header, so the final header value records
+ * the order handlers actually ran in.
+ */
+static ngx_int_t
+nxe_phase_test_a_handler(ngx_http_request_t *r)
+{
+    u_char *p;
+    size_t old_len;
+    ngx_str_t tag;
+    ngx_uint_t i;
+    ngx_flag_t found;
+    ngx_list_part_t *part;
+    ngx_table_elt_t *h, *header;
+
+    ngx_str_set(&tag, "a");
+
+    h = NULL;
+    found = 0;
+    part = &r->headers_out.headers.part;
+    header = part->elts;
+
+    for (i = 0; /* void */; i++) {
+        if (i >= part->nelts) {
+            if (part->next == NULL) {
+                break;
+            }
+            part = part->next;
+            header = part->elts;
+            i = 0;
+        }
+
+        if (header[i].hash == 0) {
+            continue;
+        }
+
+        if (header[i].key.len == sizeof("X-Nxe-Phase-Order") - 1
+            && ngx_strncasecmp(header[i].key.data,
+                               (u_char *) "X-Nxe-Phase-Order",
+                               header[i].key.len)
+            == 0)
+        {
+            h = &header[i];
+            found = 1;
+            break;
+        }
+    }
+
+    if (found) {
+        old_len = h->value.len;
+
+        p = ngx_pnalloc(r->pool, old_len + 1 + tag.len);
+        if (p == NULL) {
+            return NGX_ERROR;
+        }
+
+        ngx_memcpy(p, h->value.data, old_len);
+        p[old_len] = ',';
+        ngx_memcpy(p + old_len + 1, tag.data, tag.len);
+
+        h->value.data = p;
+        h->value.len = old_len + 1 + tag.len;
+
+        return NGX_DECLINED;
+    }
+
+    h = ngx_list_push(&r->headers_out.headers);
+    if (h == NULL) {
+        return NGX_ERROR;
+    }
+
+    h->next = NULL;
+    h->hash = 1;
+    ngx_str_set(&h->key, "X-Nxe-Phase-Order");
+    h->value = tag;
+
+    return NGX_DECLINED;
+}
+
+static ngx_int_t
+nxe_phase_test_a_postconf(ngx_conf_t *cf)
+{
+    return nxe_phase_add_handler(cf, NGX_HTTP_PREACCESS_PHASE,
+                                 NXE_PHASE_TEST_A_PRIO,
+                                 nxe_phase_test_a_handler,
+                                 "nxe_phase_test_a_module");
+}

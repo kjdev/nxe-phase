@@ -1,0 +1,23 @@
+ngx_addon_name=nxe_phase_test_b_module
+
+# --- submodule: nxe-phase (self-reference for testing) ---
+nxe_phase_dir="$ngx_addon_dir/../../.."
+
+if [ ! -f "$nxe_phase_dir/config.ngx" ]; then
+    echo "$0: error: $nxe_phase_dir/config.ngx not found" >&2
+    exit 1
+fi
+
+nxe_phase_tag=test_b
+
+. "$nxe_phase_dir/config.ngx"
+
+# --- module definition ---
+ngx_module_type=HTTP
+ngx_module_name="nxe_phase_test_b_module $nxe_phase_module_name"
+ngx_module_deps="$nxe_phase_module_deps"
+ngx_module_incs="$nxe_phase_module_incs"
+ngx_module_srcs="$nxe_phase_module_srcs $ngx_addon_dir/src/nxe_phase_test_b_module.c"
+ngx_module_libs="$nxe_phase_module_libs"
+
+. auto/module

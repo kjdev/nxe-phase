@@ -4,3 +4,4 @@
 /tests/unit/*.gcno
 /tests/unit/*.gcda
 /tests/unit/*.gcov
+/tests/prove/modules/
