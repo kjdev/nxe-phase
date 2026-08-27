@@ -52,6 +52,67 @@ jobs:
         working-directory: tests/unit
     timeout-minutes: 30
 
+  # Both consumers in one configure: proves the per-consumer tag no
+  # longer leaks through global CFLAGS and that the object paths do
+  # not collide.
+  build-combined:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up step
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            ca-certificates \
+            curl \
+            libpcre2-dev \
+            libssl-dev \
+            zlib1g-dev
+        env:
+          DEBIAN_FRONTEND: noninteractive
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          set-safe-directory: true
+          token: ${{ github.token }}
+      - name: Build with both dummy_a and dummy_b in one configure
+        run: |
+          curl -sL -o "nginx-${nginx_version}.tar.gz" "https://nginx.org/download/nginx-${nginx_version}.tar.gz"
+          tar xf "nginx-${nginx_version}.tar.gz"
+          cd "nginx-${nginx_version}"
+          ./configure \
+            --with-compat \
+            --with-pcre \
+            --with-pcre-jit \
+            --add-dynamic-module="${GITHUB_WORKSPACE}/tests/prove/dummy_a" \
+            --add-dynamic-module="${GITHUB_WORKSPACE}/tests/prove/dummy_b"
+          make -j modules
+          test -f objs/nxe_phase_test_a_module.so
+          test -f objs/nxe_phase_test_b_module.so
+        env:
+          nginx_version: '1.30.4'
+      - name: Verify each .so only defines its own tagged symbol
+        run: |
+          cd "nginx-1.30.4"
+          echo "::group::nxe_phase_test_a_module.so"
+          nm -D objs/nxe_phase_test_a_module.so | grep nxe_phase_order_module
+          echo "::endgroup::"
+          echo "::group::nxe_phase_test_b_module.so"
+          nm -D objs/nxe_phase_test_b_module.so | grep nxe_phase_order_module
+          echo "::endgroup::"
+          nm -D objs/nxe_phase_test_a_module.so \
+            | grep -q ' D nxe_phase_order_module_test_a$'
+          nm -D objs/nxe_phase_test_b_module.so \
+            | grep -q ' D nxe_phase_order_module_test_b$'
+          ! nm -D objs/nxe_phase_test_a_module.so \
+            | grep -q 'nxe_phase_order_module_test_b'
+          ! nm -D objs/nxe_phase_test_b_module.so \
+            | grep -q 'nxe_phase_order_module_test_a'
+    timeout-minutes: 30
+
   prove:
     permissions:
       contents: read
