@@ -177,8 +177,12 @@ typedef struct {
  *      phase engine's tail-to-head walk, so applying it to
  *      LOG produces the reverse execution order.
  *
- * including why SERVER_REWRITE / REWRITE / CONTENT are excluded even
- * though neither problem applies to them.
+ * SERVER_REWRITE / REWRITE / CONTENT hit neither problem above, but are
+ * still excluded: this registry only reorders handlers registered via
+ * nxe_phase_add_handler() across independent modules, and those three
+ * phases are normally driven by a single module's own directives
+ * (rewrite / content handler) rather than by multiple competing
+ * handlers, so there is no ordering conflict for this registry to solve.
  */
 static ngx_inline ngx_int_t
 nxe_phase_check_phase(ngx_conf_t *cf, ngx_uint_t phase, const char *name)
