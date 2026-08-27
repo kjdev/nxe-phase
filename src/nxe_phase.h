@@ -223,7 +223,8 @@ nxe_phase_check_phase(ngx_conf_t *cf, ngx_uint_t phase, const char *name)
  * If no registry module is found at all (nxe-phase built into a
  * process where it is the only consumer, or a unit-test harness),
  * falls back to a plain ngx_array_push() so callers keep working
- * without the ordering guarantee.
+ * without the ordering guarantee, logging a NGX_LOG_WARN each time so
+ * the loss of ordering is observable rather than silent.
  */
 static ngx_inline ngx_int_t
 nxe_phase_add_handler(ngx_conf_t *cf, ngx_uint_t phase, ngx_int_t prio,
@@ -289,7 +290,19 @@ nxe_phase_add_handler(ngx_conf_t *cf, ngx_uint_t phase, ngx_int_t prio,
         return authority->api.add(cf, phase, prio, h, name);
     }
 
-    /* Fallback: no registry found, register directly without ordering. */
+    /*
+     * Fallback: no registry found, register directly without ordering.
+     * This is the expected path for a single-consumer build or the
+     * unit-test harness (see the function comment above), but it is
+     * indistinguishable here from a multi-consumer build that forgot to
+     * vendor/link the registry -- log so priority ordering silently
+     * reverting to load_module/--add-module order is observable instead
+     * of a fail-open no-op.
+     */
+    ngx_conf_log_error(NGX_LOG_WARN, cf, 0,
+                       "nxe_phase: no registry module found, registering "
+                       "\"%s\" without priority ordering",
+                       name ? name : "(unnamed)");
 
     cmcf = ngx_http_conf_get_module_main_conf(cf, ngx_http_core_module);
 
