@@ -34,11 +34,13 @@ manipulates the HTTP phase handler arrays.
 - **Scoped re-sorting** — only the array slots owned by nxe-phase
   registrations are re-sorted. Slots belonging to other modules
   (`realip`, `limit_req`, `try_files`, ...) are never touched.
-- **Idempotent** — the registry re-sorts on every registration, so the
-  final order does not depend on which module happens to call
-  `postconfiguration` last.
+- **Idempotent across distinct priorities** — the registry re-sorts on
+  every registration, so the relative order between handlers with
+  *different* priorities does not depend on which module happens to
+  call `postconfiguration` last.
 - **Stable ordering** — handlers with equal priority run in
-  registration order.
+  registration order, so the final order among same-priority handlers
+  does still depend on `postconfiguration` call order.
 - **Vendored, tag-scoped distribution** — compiles into each
   consuming module's own build; a per-module tag keeps the resulting
   `ngx_module_t` symbol unique across coexisting copies.
@@ -142,6 +144,13 @@ vendored source, so every consumer compiles its own copy of
 `nxe_phase.c`, and the tag becomes part of the compiled `ngx_module_t`
 symbol name (`nxe_phase_order_module_$nxe_phase_tag`) so several
 copies can coexist in one nginx binary without a link-time collision.
+`config.ngx` injects the tag by generating a small per-consumer
+wrapper `.c` under `$NGX_OBJS` (nginx's addon config already has
+`$NGX_OBJS` set at this point) rather than through `CFLAGS`, since
+`CFLAGS` is a single global Makefile variable shared by every addon
+source in the build — appending to it would leak one consumer's tag
+into another's translation units when several nxe-phase consumers are
+configured together.
 
 Unlike nxe-json/nxe-cedar/nxe-jwx, nxe-phase compiles its own
 `ngx_module_t`. `$nxe_phase_module_name` MUST be appended to the
