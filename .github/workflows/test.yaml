@@ -101,6 +101,19 @@ jobs:
           with_cc_opt=$(echo "${opt}" | grep -e "--with-cc-opt='[^']*'" -o | sed -e "s/^--with-cc-opt='//" -e "s/'$//")
           with_ld_opt=$(echo "${opt}" | grep -e "--with-ld-opt='[^']*'" -o | sed -e "s/^--with-ld-opt='//" -e "s/'$//")
           opt=$(echo "${opt}" | sed -e "s|--with-cc-opt='[^']*'||" -e "s|--with-ld-opt='[^']*'||" -e 's/--without-engine//')
+          # Drop dynamic modules that pull in dev libraries nginx-dev only
+          # provides transitively (libxslt1-dev, libgd-dev, libgeoip-dev,
+          # libperl-dev), so this build doesn't implicitly depend on that.
+          # Listed explicitly rather than a blanket "=dynamic" regex --
+          # --with-mail=dynamic / --with-stream=dynamic have no dev-library
+          # dependency and are kept, and --with-compat (no "=dynamic"
+          # suffix) is untouched.
+          opt=$(echo "${opt}" | sed \
+            -e 's/--with-http_xslt_module=dynamic//' \
+            -e 's/--with-http_image_filter_module=dynamic//' \
+            -e 's/--with-http_geoip_module=dynamic//' \
+            -e 's/--with-stream_geoip_module=dynamic//' \
+            -e 's/--with-http_perl_module=dynamic//')
           # Build dummy_a and dummy_b, each with its own configure run
           for mod in a b; do
             cp -a "nginx-${nginx_version}" "nginx-${nginx_version}-${mod}"
