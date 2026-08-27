@@ -15,6 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
     shared priority-ordered registry that re-sorts only the array
     slots it owns inside `cmcf->phases[phase].handlers`, every time a
     new handler is added
+  - Only `POST_READ` / `PREACCESS` / `ACCESS` / `PRECONTENT` are
+    accepted; any other phase fails config parsing with
+    `NGX_LOG_EMERG`, in both the registry path and the standalone
+    fallback path
   - Execution order becomes ascending by priority and, among equal
     priorities, by registration order — independent of
     `--add-module` / `load_module` order, which

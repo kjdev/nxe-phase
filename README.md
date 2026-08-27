@@ -55,6 +55,24 @@ See [`src/nxe_phase.h`](src/nxe_phase.h) for full documentation.
 |---------|---------|
 | `nxe_phase_add_handler(cf, phase, prio, handler, name)` | Register a phase handler with an explicit priority instead of `ngx_array_push()` |
 
+### Registrable phases
+
+`nxe_phase_add_handler()` only accepts these four phases; any other
+`phase` value fails config parsing with `NGX_LOG_EMERG` (both the
+registry path and the standalone fallback path enforce this):
+
+- `NGX_HTTP_POST_READ_PHASE`
+- `NGX_HTTP_PREACCESS_PHASE`
+- `NGX_HTTP_ACCESS_PHASE`
+- `NGX_HTTP_PRECONTENT_PHASE`
+
+The other seven nginx HTTP phases are excluded on purpose: `nginx`'s
+`ngx_http_init_phases()` never `ngx_array_init()`s three of them
+(`FIND_CONFIG` / `POST_REWRITE` / `POST_ACCESS`), so pushing into them
+crashes at config-parse time, and `LOG` is walked in ascending order by
+`ngx_http_log_request()` outside the phase engine, which would reverse
+this registry's priority-ordering contract.
+
 ### Priority bands
 
 Values are shared across every consuming module — ordering is an
