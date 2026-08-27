@@ -1,0 +1,45 @@
+# Changelog
+
+All notable changes to this project are documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/),
+and this project adheres to [Semantic Versioning](https://semver.org/).
+
+## [Unreleased]
+
+### Added
+
+- Initial phase handler ordering registry for submodule use
+  - `nxe_phase_add_handler(cf, phase, prio, handler, name)` replaces a
+    direct `ngx_array_push()` call, registering the handler in a
+    shared priority-ordered registry that re-sorts only the array
+    slots it owns inside `cmcf->phases[phase].handlers`, every time a
+    new handler is added
+  - Execution order becomes ascending by priority and, among equal
+    priorities, by registration order — independent of
+    `--add-module` / `load_module` order, which
+    `ngx_http_init_phase_handlers()` otherwise reverses
+  - Priority bands centralized in `nxe_phase.h`, spaced 100 apart,
+    covering the 11 consuming modules: `NXE_PHASE_PRIO_HTTPSIG`,
+    `_JWT`, `_OAUTH2_TOKEN`, `_APIKEY`, `_WEBAUTHN`, `_OIDC`, `_GATE`,
+    `_CEDAR`, `_RBAC`, `_RATELIMIT`, `_INTERNAL_REDIRECT`
+  - Registry discovery via a tag-scoped `ngx_module_t`
+    (`nxe_phase_order_module_<tag>`) and an extension ctx appended
+    after the mandatory `ngx_http_module_t`; version mismatches
+    between vendored copies abort startup (`NGX_LOG_EMERG`)
+  - Falls back to a plain `ngx_array_push()` when built standalone
+    (no registry module present in the cycle)
+  - `config.ngx` requiring `nxe_phase_dir` / `nxe_phase_tag` to be set
+    by the caller before sourcing
+- Unit test suite (`tests/unit/`) covering
+  `nxe_phase_sort_entries()`: ascending-by-priority execution order,
+  stable ordering for equal priorities, slots outside the registry's
+  own group left untouched, idempotence under reordered registration,
+  and empty / single-element / all-equal-priority inputs
+- Test::Nginx integration suite (`tests/prove/`) with two dummy
+  PREACCESS-phase modules (`dummy_a`, `dummy_b`) at different
+  priorities, verifying that response header order follows priority
+  regardless of `TEST_NGINX_LOAD_MODULES` order
+- CI workflows for both test suites (`tests/unit/` via `make test` /
+  `test-asan` / `test-cov`, `tests/prove/` via `prove` against
+  separately-configured dummy module builds in both load orders)
