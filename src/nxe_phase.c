@@ -93,10 +93,49 @@ nxe_phase_sort_entries(nxe_phase_entry_t *entries, ngx_uint_t n)
 }
 
 
+/*
+ * Pool cleanup handler for the cf->pool bound in nxe_phase_registry_
+ * reset(). That pool -- and everything allocated from it, including
+ * every phase group's slots array -- is destroyed both when a reload
+ * succeeds (the *old* cycle's pool is torn down) and when one fails
+ * partway through (ngx_destroy_cycle_pools() unwinds the *new*
+ * cycle's pool). Either way, "data" is the ngx_cycle_t this cleanup
+ * was registered for; only null out the registry's cycle pointer if
+ * it still refers to that same generation. On the common successful-
+ * reload path the registry has already moved on to the new cycle by
+ * the time the old one's pool is destroyed, so this is a no-op there
+ * and only fires for the failed-reload case.
+ *
+ * Without this, nxe_phase_registry_add()'s "cycle != cf->cycle" check
+ * is the only generation guard, and a subsequent cycle allocated at
+ * the same address (cycle pools are a fixed-size ngx_create_pool(),
+ * so reuse after a free is common, not theoretical) would be
+ * mistaken for the same generation: the reset would be skipped and
+ * ngx_array_push() would write into the slots array through a
+ * dangling elts pointer into the destroyed pool.
+ */
+static void
+nxe_phase_registry_invalidate(void *data)
+{
+    if (nxe_phase_registry.cycle == data) {
+        nxe_phase_registry.cycle = NULL;
+    }
+}
+
+
 static ngx_int_t
 nxe_phase_registry_reset(ngx_conf_t *cf)
 {
     ngx_uint_t phase;
+    ngx_pool_cleanup_t *cln;
+
+    cln = ngx_pool_cleanup_add(cf->pool, 0);
+    if (cln == NULL) {
+        return NGX_ERROR;
+    }
+
+    cln->handler = nxe_phase_registry_invalidate;
+    cln->data = cf->cycle;
 
     nxe_phase_registry.cycle = cf->cycle;
     nxe_phase_registry.pool = cf->pool;
