@@ -1,0 +1,45 @@
+# nxe-phase/config.ngx — nginx build configuration
+#
+# Sourced by the parent module's `config` file.
+#
+# Prerequisites the caller MUST set before sourcing this file:
+#
+#   nxe_phase_dir   absolute path to this submodule
+#   nxe_phase_tag   short token unique to the calling module (e.g. its
+#                   own module name).  nxe-phase is vendored source, so
+#                   every consumer compiles its own copy of
+#                   nxe_phase.c; the tag becomes part of the compiled
+#                   ngx_module_t symbol name
+#                   (nxe_phase_order_module_$nxe_phase_tag) so that
+#                   several copies can coexist in one nginx binary
+#                   without a link-time name collision.
+#
+# After sourcing, $nxe_phase_module_{name,deps,srcs,incs,libs} are
+# populated and should be appended to the parent module's ngx_module_*
+# lists.
+#
+# IMPORTANT: unlike nxe-json/nxe-cedar/nxe-jwx, nxe-phase compiles its
+# own ngx_module_t.  $nxe_phase_module_name MUST be appended to the
+# parent's $ngx_module_name string as the *second or later* token (the
+# first token is what auto/module uses as the built .so's file name),
+# e.g.:
+#
+#   ngx_module_name="ngx_http_my_module $nxe_phase_module_name"
+
+if [ -z "$nxe_phase_dir" ]; then
+    echo "$0: error: nxe_phase_dir is not set" >&2
+    exit 1
+fi
+
+if [ -z "$nxe_phase_tag" ]; then
+    echo "$0: error: nxe_phase_tag is not set" >&2
+    exit 1
+fi
+
+CFLAGS="$CFLAGS -DNXE_PHASE_TAG=$nxe_phase_tag"
+
+nxe_phase_module_name="nxe_phase_order_module_$nxe_phase_tag"
+nxe_phase_module_deps="$nxe_phase_dir/src/nxe_phase.h"
+nxe_phase_module_srcs="$nxe_phase_dir/src/nxe_phase.c"
+nxe_phase_module_incs="$nxe_phase_dir/src"
+nxe_phase_module_libs=""
